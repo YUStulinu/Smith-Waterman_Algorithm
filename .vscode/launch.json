@@ -1,0 +1,67 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "GUI",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/gui.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "CLI: interactive mode",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "CLI: course example (linear gaps)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--seq1", "ATCTGA", "--seq2", "TGCA", "--gap-open", "2", "--show-matrix"],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "CLI: hemoglobin (BLOSUM62, affine gaps)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": [
+                "--fasta1", "examples/hbb_human.fasta", "--fasta2", "examples/hba_human.fasta",
+                "--matrix", "BLOSUM62", "--gap", "affine", "--gap-open", "10", "--gap-extend", "1"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Demo: all examples from the report",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/demo.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Tests",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "unittest",
+            "args": ["discover", "-s", "tests", "-v"],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Benchmark",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/benchmark.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        }
+    ]
+}
