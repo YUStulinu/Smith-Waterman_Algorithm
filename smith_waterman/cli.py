@@ -32,6 +32,13 @@ from .sequences import clean_sequence, detect_type, prepare_sequence, read_fasta
 MAX_MATRIX_CELLS = 40 * 40      # larger DP matrices are not printed in the terminal
 
 
+def positive_int(text: str) -> int:
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return value
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="main.py",
@@ -63,7 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
     output.add_argument("--show-matrix", action="store_true", help="print the dynamic programming matrices")
     output.add_argument("--show-substitution", action="store_true", help="print the substitution matrix")
     output.add_argument("--all", action="store_true", help="print every optimal alignment, not only the first")
-    output.add_argument("--width", type=int, default=60, help="alignment columns per line (default 60)")
+    output.add_argument("--width", type=positive_int, default=60, help="alignment columns per line (default 60)")
     output.add_argument("--list-matrices", action="store_true", help="list the built-in matrices and exit")
     return parser
 

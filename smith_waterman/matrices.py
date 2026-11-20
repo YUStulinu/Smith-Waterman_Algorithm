@@ -125,9 +125,10 @@ def load_matrix_file(path: str | Path, name: str | None = None, kind: str | None
     one score per column.
     """
     path = Path(path)
+    # utf-8-sig also strips the BOM that some Windows editors add
     rows = [
         line.split()
-        for line in path.read_text(encoding="utf-8").splitlines()
+        for line in path.read_text(encoding="utf-8-sig").splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
     if len(rows) < 2:

@@ -56,7 +56,8 @@ def read_fasta(path: str | Path) -> list[tuple[str, str]]:
     records: list[tuple[str, str]] = []
     header: str | None = None
     chunks: list[str] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    # utf-8-sig also strips the BOM that some Windows editors add
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
         line = line.strip()
         if not line or line.startswith(";"):
             continue
