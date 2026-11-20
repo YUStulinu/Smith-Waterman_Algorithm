@@ -10,6 +10,7 @@ The window has two result tabs:
 
 from __future__ import annotations
 
+import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -49,6 +50,7 @@ class App(tk.Tk):
         self.minsize(900, 600)
 
         self.result: SmithWatermanResult | None = None
+        self.busy = False                   # True while an alignment runs in the background
         self.custom_matrix = None           # matrix loaded from a file, if any
 
         self.type_var = tk.StringVar(value="auto")
@@ -128,7 +130,8 @@ class App(tk.Tk):
         self.extend_entry = ttk.Entry(frame, width=5, textvariable=self.extend_var)
         self.extend_entry.grid(row=1, column=10)
 
-        ttk.Button(frame, text="Align", command=self.align).grid(row=0, column=11, rowspan=2, padx=16, ipadx=12, ipady=6)
+        self.align_button = ttk.Button(frame, text="Align", command=self.align)
+        self.align_button.grid(row=0, column=11, rowspan=2, padx=16, ipadx=12, ipady=6)
 
     def _build_results(self) -> None:
         notebook = ttk.Notebook(self)
@@ -237,6 +240,8 @@ class App(tk.Tk):
     # ----------------------------------------------------------------- actions
 
     def load_example(self, example: tuple) -> None:
+        if self.busy:
+            return
         label, a, b, matrix, gap, gap_open, gap_extend = example
         self.example_box.set(label)
         self.custom_matrix = None
@@ -285,6 +290,14 @@ class App(tk.Tk):
         self.on_matrix_changed()
 
     def align(self) -> None:
+        """Read the inputs and start the alignment in a background thread.
+
+        Long sequences take a few seconds; computing outside the Tk event
+        loop keeps the window responsive. Tk widgets are only touched from
+        the main thread: finish_align polls the worker with after().
+        """
+        if self.busy:
+            return
         try:
             matrix = self.selected_matrix()
             a = prepare_sequence(self.get_sequence("a"), matrix)
@@ -293,11 +306,37 @@ class App(tk.Tk):
             gap_extend = None
             if self.gap_var.get() == "affine":
                 gap_extend = self.parse_number(self.extend_var.get(), "e")
-            self.result = smith_waterman(a, b, matrix, gap_open, gap_extend)
         except ValueError as error:
             messagebox.showerror("Invalid input", str(error))
             return
 
+        outcome: dict = {}
+
+        def work() -> None:
+            try:
+                outcome["result"] = smith_waterman(a, b, matrix, gap_open, gap_extend)
+            except ValueError as error:
+                outcome["error"] = error
+
+        self.busy = True
+        self.align_button.configure(state="disabled")
+        self.status_var.set(f"Aligning {len(a)} x {len(b)} symbols...")
+        worker = threading.Thread(target=work, daemon=True)
+        worker.start()
+        self.after(20, self.finish_align, worker, outcome)
+
+    def finish_align(self, worker: threading.Thread, outcome: dict) -> None:
+        if worker.is_alive():
+            self.after(20, self.finish_align, worker, outcome)
+            return
+        self.busy = False
+        self.align_button.configure(state="normal")
+        if "error" in outcome:
+            self.status_var.set("")
+            messagebox.showerror("Invalid input", str(outcome["error"]))
+            return
+
+        self.result = outcome["result"]
         text = format_result(self.result, "a", "b", show_matrix=False, show_all=True)
         self.set_text(self.report, text)
 
@@ -311,7 +350,7 @@ class App(tk.Tk):
         count = len(self.result.alignments)
         self.status_var.set(
             f"Best score: {format_number(self.result.best_score)}   |   optimal alignments found: {count}   |   "
-            f"matrix size: {len(a) + 1} x {len(b) + 1}")
+            f"matrix size: {len(self.result.a) + 1} x {len(self.result.b) + 1}")
 
     @staticmethod
     def set_text(widget: tk.Text, text: str) -> None:
