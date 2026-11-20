@@ -20,6 +20,7 @@ Any other matrix can be loaded from a text file in the NCBI format with
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -84,6 +85,8 @@ def _fmt(value: int | float) -> str:
 
 def identity_matrix(match: int | float = 1, mismatch: int | float = -1) -> SubstitutionMatrix:
     """Nucleotide matrix with one match score and one mismatch score."""
+    if not (math.isfinite(match) and math.isfinite(mismatch)):
+        raise ValueError("the match and mismatch scores must be finite numbers")
     if match <= 0:
         raise ValueError("the match score must be positive")
     if mismatch >= 0:
@@ -144,6 +147,8 @@ def load_matrix_file(path: str | Path, name: str | None = None, kind: str | None
         alphabet.append(symbol)
         for column, value in zip(columns, values):
             number = float(value)
+            if not math.isfinite(number):
+                raise ValueError(f"{path.name}: score '{value}' for ({symbol}, {column}) is not a finite number")
             scores[(symbol, column)] = int(number) if number.is_integer() else number
 
     if set(alphabet) != set(columns):
