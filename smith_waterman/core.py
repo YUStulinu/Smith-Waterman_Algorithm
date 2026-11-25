@@ -157,10 +157,17 @@ def _substitution_rows(a: str, b: str, matrix: SubstitutionMatrix) -> list[list[
 
 # The fill loops below walk the previous row with zip() instead of indexing
 # S[i][j], and compare values directly instead of calling max(): this is
-# several times faster in CPython. They store only the scores. The traceback
-# re-runs the same comparisons for the few cells on its path (_linear_move,
-# _affine_*_move), which gives exactly the moves the fill chose, without
-# keeping an (n+1) x (m+1) traceback matrix in memory.
+# several times faster in CPython. Two gap candidates with the same penalty d
+# keep the order of their sources (x <= y implies x - d <= y - d), so the loops
+# compare the sources first and skip the subtraction and the comparison that
+# cannot change the result; every comparison that remains is the one the
+# recurrence makes, so ties are broken as before. (The order is kept for ints
+# and floats below 2**53, about 9e15, so for any real substitution matrix;
+# beyond that Python mixes exact int and rounded float arithmetic and the last
+# digits are only as precise as floating point, as before.) The loops
+# store only the scores. The traceback re-runs the fill's comparisons for the
+# few cells on its path (_linear_move, _best_of), which gives exactly the moves
+# the fill chose, without keeping an (n+1) x (m+1) traceback matrix in memory.
 
 # --------------------------------------------------------------------------
 # Linear gap penalty
@@ -178,12 +185,17 @@ def fill_linear(a: str, b: str, matrix: SubstitutionMatrix, d: Number) -> Grid:
         for diag, up, s in zip(previous, islice(previous, 1, None), sub):
             # Same priority as the pseudocode in the course: diagonal, up, left.
             best = diag + s
-            up -= d
-            if up > best:
-                best = up
-            left -= d
-            if left > best:
-                best = left
+            if up >= left:                      # left - d <= up - d: left cannot win
+                up -= d
+                if up > best:
+                    best = up
+            else:
+                left -= d
+                if left > best:
+                    # up - d < left - d, unless rounding makes them equal: then
+                    # up wins the tie, as in the course
+                    up -= d
+                    best = up if up == left else left
             if best <= 0:
                 best = 0
             row.append(best)
@@ -229,14 +241,25 @@ def traceback_linear(
             aligned_b.append(b[j - 1])
             j -= 1
         path.append((i, j))
+    return _alignment(aligned_a, aligned_b, path, S, matrix)
 
+
+def _alignment(
+    aligned_a: list[str], aligned_b: list[str], path: list[tuple[int, int]], S: Grid, matrix: SubstitutionMatrix
+) -> Alignment:
+    """Build the Alignment from the columns and cells a traceback collected backwards.
+
+    path[0] is the end cell and path[-1] the cell where the traceback stopped,
+    one row and one column before the first aligned symbols.
+    """
+    (end_a, end_b), (i, j) = path[0], path[-1]
     path.reverse()
     return Alignment(
         aligned_a="".join(reversed(aligned_a)),
         aligned_b="".join(reversed(aligned_b)),
-        score=S[end[0]][end[1]],
-        start_a=i + 1, end_a=end[0],
-        start_b=j + 1, end_b=end[1],
+        score=S[end_a][end_b],
+        start_a=i + 1, end_a=end_a,
+        start_b=j + 1, end_b=end_b,
         path=path,
         matrix=matrix,
     )
@@ -257,42 +280,43 @@ def fill_affine(a: str, b: str, matrix: SubstitutionMatrix, d: Number, e: Number
     for sub in _substitution_rows(a, b, matrix):
         row_S, row_Ga, row_Gb = [0], [NEG_INF], [NEG_INF]
         s_left, ga_left, gb_left = 0, NEG_INF, NEG_INF          # column j-1 of row i
-        # *_diag = column j-1 of row i-1, *_up = column j of row i-1
-        for s_diag, s_up, ga_diag, ga_up, gb_diag, gb_up, s in zip(
-            prev_S, islice(prev_S, 1, None),
-            prev_Ga, islice(prev_Ga, 1, None),
-            prev_Gb, islice(prev_Gb, 1, None),
-            sub,
+        diag = 0                                                # max{S, Gb, Ga}(i-1, j-1)
+        # *_up = column j of row i-1
+        for s_up, ga_up, gb_up, s in zip(
+            islice(prev_S, 1, None), islice(prev_Ga, 1, None), islice(prev_Gb, 1, None), sub
         ):
             # Gb(i, j): a[i] is aligned with a gap, we come from row i-1.
-            # Priority on ties: open, extend, switch (same for Ga).
+            # Priority on ties: open, extend, switch (same for Ga). Switching
+            # costs d like opening, so it can only win when Ga > S.
             gb = s_up - d
             value = gb_up - e
             if value > gb:
                 gb = value
-            value = ga_up - d
-            if value > gb:
-                gb = value
+            if ga_up > s_up:
+                value = ga_up - d
+                if value > gb:
+                    gb = value
 
             # Ga(i, j): b[j] is aligned with a gap, we come from column j-1.
             ga = s_left - d
             value = ga_left - e
             if value > ga:
                 ga = value
-            value = gb_left - d
-            if value > ga:
-                ga = value
+            if gb_left > s_left:
+                value = gb_left - d
+                if value > ga:
+                    ga = value
 
             # S(i, j): a[i] is aligned with b[j], we come from (i-1, j-1).
-            # Priority on ties: S, Gb, Ga.
-            best = s_diag
-            if gb_diag > best:
-                best = gb_diag
-            if ga_diag > best:
-                best = ga_diag
-            best += s
+            # max{S, Gb, Ga}(i-1, j-1) was taken one column earlier (ties: S, Gb, Ga).
+            best = diag + s
             if best <= 0:
                 best = 0
+            diag = s_up
+            if gb_up > diag:
+                diag = gb_up
+            if ga_up > diag:
+                diag = ga_up
 
             row_S.append(best)
             row_Ga.append(ga)
@@ -360,20 +384,15 @@ def traceback_affine(
             aligned_b.append(b[j - 1])
             # Ga candidates in fill order: open (S), extend (Ga), switch (Gb).
             move = _best_of(S[i][j - 1], Ga[i][j - 1], Gb[i][j - 1], d, e, d)
-            state = {DIAG: DIAG, UP: LEFT, LEFT: UP}[move]
+            state = _GA_CANDIDATE_MATRIX[move]
             j -= 1
         path.append((i, j))
+    return _alignment(aligned_a, aligned_b, path, S, matrix)
 
-    path.reverse()
-    return Alignment(
-        aligned_a="".join(reversed(aligned_a)),
-        aligned_b="".join(reversed(aligned_b)),
-        score=S[end[0]][end[1]],
-        start_a=i + 1, end_a=end[0],
-        start_b=j + 1, end_b=end[1],
-        path=path,
-        matrix=matrix,
-    )
+
+# The matrix each candidate of the Ga recurrence comes from, by the position
+# _best_of returns: open = S (DIAG), extend = Ga (LEFT), switch = Gb (UP).
+_GA_CANDIDATE_MATRIX = {DIAG: DIAG, UP: LEFT, LEFT: UP}
 
 
 # --------------------------------------------------------------------------
@@ -381,11 +400,23 @@ def traceback_affine(
 # --------------------------------------------------------------------------
 
 def find_best_cells(S: Grid) -> tuple[Number, list[tuple[int, int]]]:
-    """Return the maximum of S and every cell where it is reached."""
-    best = max(max(row) for row in S)
+    """Return the maximum of S and every cell where it is reached, row by row."""
+    maxima = list(map(max, S))
+    best = max(maxima)
     if best <= 0:
         return 0, []
-    cells = [(i, j) for i, row in enumerate(S) for j, value in enumerate(row) if value == best]
+    # Only a row whose own maximum is the best can hold it; list.index scans in C.
+    cells = []
+    for i, row_max in enumerate(maxima):
+        if row_max == best:
+            row = S[i]
+            j = row.index(best)
+            while True:
+                cells.append((i, j))
+                try:
+                    j = row.index(best, j + 1)
+                except ValueError:
+                    break
     return best, cells
 
 

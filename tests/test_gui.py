@@ -121,6 +121,13 @@ class Examples(GuiTestCase):
                 self.assertEqual(len(self.app.result.alignments), len(expected.alignments))
                 self.assertIn(f"Best score: {expected.best_score}", self.app.status_var.get())
 
+    def test_example_label_follows_the_sequences(self):
+        label, a, b = gui.EXAMPLES[0][:3]
+        self.type_sequences(a, b)                       # the example's own sequences: label kept
+        self.assertEqual(self.app.example_box.get(), label)
+        self.type_sequences("ACGTACGT", b)              # edited: the label no longer applies
+        self.assertEqual(self.app.example_box.get(), "")
+
     def test_examples_ignored_while_busy(self):
         self.app.busy = True
         self.app.load_example(gui.EXAMPLES[4])
@@ -271,6 +278,7 @@ class Files(GuiTestCase):
             self.app.load_fasta("a")
         self.assertEqual(len(gui.clean_sequence(self.app.get_sequence("a"))), 147)
         self.assertIn("HBB_HUMAN", self.app.status_var.get())
+        self.assertEqual(self.app.example_box.get(), "")        # no longer the course example
 
     def test_cancelled_dialogs_change_nothing(self):
         before = self.app.get_sequence("a")

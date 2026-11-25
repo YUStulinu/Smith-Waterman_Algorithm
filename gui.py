@@ -84,7 +84,7 @@ class App(tk.Tk):
             ttk.Label(frame, text=f"Sequence {key}:").grid(row=row, column=0, sticky="nw", padx=6, pady=4)
             text = tk.Text(frame, height=2, wrap="char", font=("Consolas", 11))
             text.grid(row=row, column=1, sticky="ew", pady=4)
-            text.bind("<KeyRelease>", lambda _event: self.refresh_matrix_choices())
+            text.bind("<KeyRelease>", lambda _event: self.on_sequences_changed())
             self.seq_text[key] = text
             ttk.Button(frame, text="Load FASTA...", command=lambda k=key: self.load_fasta(k)).grid(
                 row=row, column=2, padx=6, pady=4, sticky="n")
@@ -189,6 +189,14 @@ class App(tk.Tk):
         a, b = clean_sequence(self.get_sequence("a")), clean_sequence(self.get_sequence("b"))
         return detect_type(a, b) if (a or b) else NUCLEOTIDE
 
+    def on_sequences_changed(self) -> None:
+        """Follow an edit of the sequences: drop a stale example label, refresh the matrices."""
+        index = self.example_box.current()
+        typed = (clean_sequence(self.get_sequence("a")), clean_sequence(self.get_sequence("b")))
+        if index >= 0 and typed != EXAMPLES[index][1:3]:
+            self.example_box.set("")
+        self.refresh_matrix_choices()
+
     def refresh_matrix_choices(self) -> None:
         """Offer only the matrices that fit the current sequence type."""
         names = list(available_matrices(self.current_kind()))
@@ -273,7 +281,7 @@ class App(tk.Tk):
             return
         header, sequence = records[0]
         self.set_sequence(key, sequence)
-        self.refresh_matrix_choices()
+        self.on_sequences_changed()
         self.status_var.set(f"Loaded sequence {key}: {header} ({len(sequence)} symbols)")
 
     def load_matrix(self) -> None:

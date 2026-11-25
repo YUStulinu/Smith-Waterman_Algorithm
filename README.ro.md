@@ -26,7 +26,7 @@ Este nevoie doar de Python 3.10 sau mai nou. Nu trebuie instalat niciun pachet.
 | CLI: course example (linear gaps) | exemplul din curs, cu matricea afișată |
 | CLI: hemoglobin (BLOSUM62, affine gaps) | hemoglobina umană beta față de alfa |
 | Demo: all examples from the report | toate exemplele din referat |
-| Tests | cele 126 de teste automate |
+| Tests | cele 133 de teste automate |
 | Benchmark | timpul de execuție în funcție de lungime |
 
 ## Rulare din terminal

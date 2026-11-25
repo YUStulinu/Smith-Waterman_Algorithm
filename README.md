@@ -132,7 +132,7 @@ The alignment ends in the cell with the highest value and is rebuilt backwards u
 - The examples from the course and from Durbin et al. (1998) are reproduced exactly.
 - On short sequences, the score is compared with an exhaustive search over every local alignment.
 - The scores were compared with Biopython's `PairwiseAligner` (local mode) on 3300 random DNA and protein pairs, with linear and affine gaps, and no difference was found.
-- 126 automated tests run on every push (see the badge above), using only the standard library:
+- 133 automated tests run on every push (see the badge above), using only the standard library:
 
 ```bash
 python -m unittest discover -s tests -v
@@ -140,7 +140,7 @@ python -m unittest discover -s tests -v
 
 | File | What it checks |
 |---|---|
-| `test_smith_waterman.py` | known examples, affine gaps, properties on random input, exhaustive search |
+| `test_smith_waterman.py` | known examples, affine gaps, properties on random input, exhaustive search, an independent transcription of the recurrences compared cell by cell |
 | `test_cli_and_io.py` | every command line option, interactive mode, FASTA and matrix files, text output, edge cases |
 | `test_performance.py` | O(n·m) running time, time budget, memory per cell, no traceback matrix kept |
 | `test_code_quality.py` | no unused functions, fields, imports, variables or unreachable code (AST analysis) |

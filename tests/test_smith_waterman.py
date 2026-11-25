@@ -26,8 +26,36 @@ from smith_waterman import (  # noqa: E402
     transition_transversion_matrix,
 )
 from smith_waterman.cli import main as cli_main  # noqa: E402
+from smith_waterman.core import fill_affine, fill_linear, find_best_cells  # noqa: E402
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+NEG_INF = float("-inf")
+
+
+def reference_linear(a, b, matrix, d):
+    """S for linear gaps, transcribed directly from the recurrence (full matrix, max())."""
+    S = [[0] * (len(b) + 1) for _ in range(len(a) + 1)]
+    for i in range(1, len(a) + 1):
+        for j in range(1, len(b) + 1):
+            # max() keeps the first of equal values: diagonal, up, left, as in the course
+            best = max(S[i - 1][j - 1] + matrix.score(a[i - 1], b[j - 1]), S[i - 1][j] - d, S[i][j - 1] - d)
+            S[i][j] = best if best > 0 else 0
+    return S
+
+
+def reference_affine(a, b, matrix, d, e):
+    """S, Ga, Gb for affine gaps, transcribed directly from the three recurrences."""
+    n, m = len(a), len(b)
+    S = [[0] * (m + 1) for _ in range(n + 1)]
+    Ga = [[NEG_INF] * (m + 1) for _ in range(n + 1)]
+    Gb = [[NEG_INF] * (m + 1) for _ in range(n + 1)]
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            Gb[i][j] = max(S[i - 1][j] - d, Gb[i - 1][j] - e, Ga[i - 1][j] - d)
+            Ga[i][j] = max(S[i][j - 1] - d, Ga[i][j - 1] - e, Gb[i][j - 1] - d)
+            best = max(S[i - 1][j - 1], Gb[i - 1][j - 1], Ga[i - 1][j - 1]) + matrix.score(a[i - 1], b[j - 1])
+            S[i][j] = best if best > 0 else 0
+    return S, Ga, Gb
 
 
 def brute_force_best_score(a, b, matrix, d, e=None):
@@ -207,6 +235,63 @@ class Correctness(unittest.TestCase):
             for d, e in itertools.product([1, 3], [None, 1]):
                 expected = brute_force_best_score(a, b, matrix, d, e)
                 self.assertEqual(smith_waterman(a, b, matrix, d, e).best_score, expected, (a, b, d, e))
+
+
+class ReferenceRecurrences(unittest.TestCase):
+    """The optimised fill loops give, cell by cell, what the recurrences give."""
+
+    def assert_same_grid(self, got, expected, context):
+        self.assertEqual(len(got), len(expected), context)
+        for i, (row, expected_row) in enumerate(zip(got, expected)):
+            # same values and same int/float type in every cell
+            self.assertEqual([(type(v), v) for v in row], [(type(v), v) for v in expected_row], (context, i))
+
+    def random_cases(self, seed, count):
+        rng = random.Random(seed)
+        matrices = [identity_matrix(1, -1), identity_matrix(2, -1), identity_matrix(1.5, -0.25),
+                    identity_matrix(0.3, -0.1), transition_transversion_matrix(), get_matrix("NUC.4.4")]
+        protein = get_matrix("BLOSUM62")
+        for _ in range(count):
+            if rng.random() < 0.3:
+                matrix, letters = protein, "ARNDCQEGHILKMFPSTWYV"
+            else:
+                matrix, letters = rng.choice(matrices), "ACGT"
+            a = "".join(rng.choice(letters) for _ in range(rng.randint(1, 25)))
+            b = "".join(rng.choice(letters) for _ in range(rng.randint(1, 25)))
+            d = rng.choice([0, 0.1, 0.5, 1, 2, 2.5, 4, 8])
+            e = rng.choice([0, 0.1, 0.5, 1, d])
+            yield a, b, matrix, d, min(d, e)
+
+    def test_linear(self):
+        for a, b, matrix, d, _e in self.random_cases(6, 300):
+            self.assert_same_grid(fill_linear(a, b, matrix, d), reference_linear(a, b, matrix, d), (a, b, d))
+
+    def test_affine(self):
+        for a, b, matrix, d, e in self.random_cases(7, 300):
+            for got, expected, name in zip(fill_affine(a, b, matrix, d, e), reference_affine(a, b, matrix, d, e),
+                                           ("S", "Ga", "Gb")):
+                self.assert_same_grid(got, expected, (name, a, b, d, e))
+
+    def test_rounding_tie(self):
+        """Ga(i-1, j) = 2.8e-17 > S(i-1, j) = 0, yet both give -4 after subtracting d = 4."""
+        a, b = "TTTT", "TGTGTGGGGGGTTGGGTGGTTTGTTGGTGTGTGTTGGTGGGGGGGGTTGGTTGTTTGTGGGGTG"
+        matrix = identity_matrix(1.5, -0.25)
+        for got, expected in zip(fill_affine(a, b, matrix, 4, 0.1), reference_affine(a, b, matrix, 4, 0.1)):
+            self.assert_same_grid(got, expected, "rounding tie")
+
+
+class BestCells(unittest.TestCase):
+    def test_every_maximum_in_row_major_order(self):
+        S = [[0, 0, 0], [0, 3, 1], [0, 1, 2], [0, 3, 3]]
+        self.assertEqual(find_best_cells(S), (3, [(1, 1), (3, 1), (3, 2)]))
+
+    def test_no_positive_cell(self):
+        self.assertEqual(find_best_cells([[0, 0], [0, 0]]), (0, []))
+
+    def test_equal_int_and_float(self):
+        best, cells = find_best_cells([[0, 0, 0], [0, 2.5, 3], [0, 3.0, 1]])
+        self.assertIs(type(best), int)          # the first maximum found, like max()
+        self.assertEqual(cells, [(1, 2), (2, 1)])
 
 
 class Matrices(unittest.TestCase):
