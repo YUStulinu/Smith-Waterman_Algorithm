@@ -32,11 +32,12 @@ def format_alignment(alignment: Alignment, width: int = 60, name_a: str = "a", n
     digits = len(str(max(alignment.end_a, alignment.end_b, 1)))
     lines: list[str] = []
     pos_a, pos_b = alignment.start_a, alignment.start_b
+    midline = alignment.midline             # a property: build it once, not per block
 
     for offset in range(0, alignment.length, width):
         chunk_a = alignment.aligned_a[offset:offset + width]
         chunk_b = alignment.aligned_b[offset:offset + width]
-        chunk_mid = alignment.midline[offset:offset + width]
+        chunk_mid = midline[offset:offset + width]
         used_a = len(chunk_a) - chunk_a.count("-")
         used_b = len(chunk_b) - chunk_b.count("-")
         # A block made only of gaps consumes no residue: show the last position.

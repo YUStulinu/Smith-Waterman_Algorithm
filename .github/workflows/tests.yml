@@ -20,7 +20,28 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Run unit tests
+      - name: Run the tests (GUI tests are skipped without a display)
         run: python -m unittest discover -s tests -v
       - name: Run the demo
         run: python demo.py
+
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install the analysis tools and a virtual display
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          python -m pip install ruff vulture coverage
+      - name: Pyflakes (unused imports and variables, undefined names)
+        run: ruff check --select F,E9 --target-version py310 .
+      - name: Dead code
+        run: vulture smith_waterman gui.py main.py demo.py benchmark.py --min-confidence 60
+      - name: All tests, GUI included, with branch coverage
+        run: xvfb-run -a python -m coverage run --branch --source smith_waterman,gui,benchmark -m unittest discover -s tests -v
+      - name: Coverage report
+        run: python -m coverage report -m --fail-under=95

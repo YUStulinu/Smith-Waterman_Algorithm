@@ -132,11 +132,22 @@ The alignment ends in the cell with the highest value and is rebuilt backwards u
 - The examples from the course and from Durbin et al. (1998) are reproduced exactly.
 - On short sequences, the score is compared with an exhaustive search over every local alignment.
 - The scores were compared with Biopython's `PairwiseAligner` (local mode) on 3300 random DNA and protein pairs, with linear and affine gaps, and no difference was found.
-- 25 unit tests run on every push (see the badge above):
+- 126 automated tests run on every push (see the badge above), using only the standard library:
 
 ```bash
 python -m unittest discover -s tests -v
 ```
+
+| File | What it checks |
+|---|---|
+| `test_smith_waterman.py` | known examples, affine gaps, properties on random input, exhaustive search |
+| `test_cli_and_io.py` | every command line option, interactive mode, FASTA and matrix files, text output, edge cases |
+| `test_performance.py` | O(n·m) running time, time budget, memory per cell, no traceback matrix kept |
+| `test_code_quality.py` | no unused functions, fields, imports, variables or unreachable code (AST analysis) |
+| `test_gui.py` | drives the real Tkinter window: examples, matrix view, cell clicks, errors, files, responsiveness (skipped without a display) |
+| `test_end_to_end.py` | starts `main.py`, `demo.py`, `gui.py` and the benchmark as separate processes |
+
+The CI also runs pyflakes (`ruff --select F`), `vulture` and a coverage gate of 95% (currently 99% of the branches).
 
 ## Project layout
 
@@ -153,7 +164,7 @@ smith_waterman/
     cli.py                 command line options and interactive mode
     data/                  BLOSUM, PAM and NUC.4.4 matrices (NCBI format)
 examples/                  FASTA test sequences
-tests/                     unit tests
+tests/                     automated tests (see Validation)
 docs/
     Report_Smith-Waterman.docx / .pdf           report (English)
     Presentation_Smith-Waterman.pptx            slides (English)

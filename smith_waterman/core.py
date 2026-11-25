@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from itertools import islice
 
 from .matrices import SubstitutionMatrix
 
@@ -48,6 +49,7 @@ NEG_INF = float("-inf")
 
 # Traceback codes. For the linear model they name the move that produced a
 # cell; for the affine model they name the matrix the value came from.
+# They are recomputed during the traceback, never stored per cell.
 STOP = 0
 DIAG = 1      # from (i-1, j-1): a[i] aligned with b[j]      / matrix S
 UP = 2        # from (i-1, j):   a[i] aligned with a gap     / matrix Gb
@@ -124,8 +126,7 @@ class SmithWatermanResult:
     Ga: Grid | None                 # only for the affine model
     Gb: Grid | None
     best_score: Number
-    best_cells: list[tuple[int, int]]     # every cell of S holding the maximum
-    alignments: list[Alignment]           # one alignment per best cell
+    alignments: list[Alignment]           # one alignment per cell of S holding the maximum
 
     @property
     def alignment(self) -> Alignment | None:
@@ -154,49 +155,59 @@ def _substitution_rows(a: str, b: str, matrix: SubstitutionMatrix) -> list[list[
     return [cache[x] for x in a]
 
 
-# The fill loops below keep the previous and current rows in local variables
-# and compare values directly instead of calling max(): this is about twice as
-# fast in CPython as indexing S[i][j] everywhere. Traceback codes are stored in
-# bytearrays (one byte per cell instead of an 8-byte list slot).
+# The fill loops below walk the previous row with zip() instead of indexing
+# S[i][j], and compare values directly instead of calling max(): this is
+# several times faster in CPython. They store only the scores. The traceback
+# re-runs the same comparisons for the few cells on its path (_linear_move,
+# _affine_*_move), which gives exactly the moves the fill chose, without
+# keeping an (n+1) x (m+1) traceback matrix in memory.
 
 # --------------------------------------------------------------------------
 # Linear gap penalty
 # --------------------------------------------------------------------------
 
-def fill_linear(a: str, b: str, matrix: SubstitutionMatrix, d: Number) -> tuple[Grid, list[bytearray]]:
-    """Fill the score matrix S and the traceback matrix for linear gaps."""
-    m = len(b)
-    S: Grid = [[0] * (m + 1)]
-    back = [bytearray(m + 1)]
+def fill_linear(a: str, b: str, matrix: SubstitutionMatrix, d: Number) -> Grid:
+    """Fill the score matrix S for linear gaps."""
+    S: Grid = [[0] * (len(b) + 1)]
     previous = S[0]
 
     for sub in _substitution_rows(a, b, matrix):
-        row = [0] * (m + 1)
-        moves = bytearray(m + 1)
-        left_value = 0                          # S(i, j-1)
-        for j in range(1, m + 1):
+        row = [0]
+        left = 0                                # S(i, j-1)
+        # diag = S(i-1, j-1), up = S(i-1, j), s = M(a[i], b[j])
+        for diag, up, s in zip(previous, islice(previous, 1, None), sub):
             # Same priority as the pseudocode in the course: diagonal, up, left.
-            best = previous[j - 1] + sub[j - 1]
-            move = DIAG
-            up = previous[j] - d
+            best = diag + s
+            up -= d
             if up > best:
-                best, move = up, UP
-            left = left_value - d
+                best = up
+            left -= d
             if left > best:
-                best, move = left, LEFT
+                best = left
             if best <= 0:
-                best, move = 0, STOP
-            row[j] = best
-            moves[j] = move
-            left_value = best
+                best = 0
+            row.append(best)
+            left = best
         S.append(row)
-        back.append(moves)
         previous = row
-    return S, back
+    return S
+
+
+def _linear_move(a: str, b: str, matrix: SubstitutionMatrix, S: Grid, d: Number, i: int, j: int) -> int:
+    """The move fill_linear chose for cell (i, j)."""
+    if S[i][j] <= 0:                    # reset to 0 (this includes row 0 and column 0)
+        return STOP
+    best = S[i - 1][j - 1] + matrix.score(a[i - 1], b[j - 1])
+    move = DIAG
+    if S[i - 1][j] - d > best:
+        best, move = S[i - 1][j] - d, UP
+    if S[i][j - 1] - d > best:
+        move = LEFT
+    return move
 
 
 def traceback_linear(
-    a: str, b: str, matrix: SubstitutionMatrix, S: Grid, back: list[bytearray], end: tuple[int, int]
+    a: str, b: str, matrix: SubstitutionMatrix, S: Grid, d: Number, end: tuple[int, int]
 ) -> Alignment:
     """Rebuild the alignment that ends in cell ``end`` of S."""
     i, j = end
@@ -204,8 +215,7 @@ def traceback_linear(
     aligned_b: list[str] = []
     path = [(i, j)]
 
-    while back[i][j] != STOP:
-        move = back[i][j]
+    while (move := _linear_move(a, b, matrix, S, d, i, j)) != STOP:
         if move == DIAG:
             aligned_a.append(a[i - 1])
             aligned_b.append(b[j - 1])
@@ -236,80 +246,77 @@ def traceback_linear(
 # Affine gap penalty (three matrices)
 # --------------------------------------------------------------------------
 
-def fill_affine(
-    a: str, b: str, matrix: SubstitutionMatrix, d: Number, e: Number
-) -> tuple[Grid, Grid, Grid, list[bytearray], list[bytearray], list[bytearray]]:
-    """Fill S, Ga, Gb and one traceback matrix for each of them.
-
-    Each traceback entry stores the matrix (DIAG = S, UP = Gb, LEFT = Ga) the
-    value was derived from, or STOP for a cell of S that was reset to 0.
-    """
+def fill_affine(a: str, b: str, matrix: SubstitutionMatrix, d: Number, e: Number) -> tuple[Grid, Grid, Grid]:
+    """Fill the three matrices S, Ga and Gb for affine gaps."""
     m = len(b)
     S: Grid = [[0] * (m + 1)]
     Ga: Grid = [[NEG_INF] * (m + 1)]
     Gb: Grid = [[NEG_INF] * (m + 1)]
-    back_S = [bytearray(m + 1)]
-    back_Ga = [bytearray(m + 1)]
-    back_Gb = [bytearray(m + 1)]
     prev_S, prev_Ga, prev_Gb = S[0], Ga[0], Gb[0]
 
     for sub in _substitution_rows(a, b, matrix):
-        row_S = [0] * (m + 1)
-        row_Ga = [NEG_INF] * (m + 1)
-        row_Gb = [NEG_INF] * (m + 1)
-        moves_S = bytearray(m + 1)
-        moves_Ga = bytearray(m + 1)
-        moves_Gb = bytearray(m + 1)
-        for j in range(1, m + 1):
+        row_S, row_Ga, row_Gb = [0], [NEG_INF], [NEG_INF]
+        s_left, ga_left, gb_left = 0, NEG_INF, NEG_INF          # column j-1 of row i
+        # *_diag = column j-1 of row i-1, *_up = column j of row i-1
+        for s_diag, s_up, ga_diag, ga_up, gb_diag, gb_up, s in zip(
+            prev_S, islice(prev_S, 1, None),
+            prev_Ga, islice(prev_Ga, 1, None),
+            prev_Gb, islice(prev_Gb, 1, None),
+            sub,
+        ):
             # Gb(i, j): a[i] is aligned with a gap, we come from row i-1.
             # Priority on ties: open, extend, switch (same for Ga).
-            best = prev_S[j] - d
-            move = DIAG
-            value = prev_Gb[j] - e
-            if value > best:
-                best, move = value, UP
-            value = prev_Ga[j] - d
-            if value > best:
-                best, move = value, LEFT
-            row_Gb[j] = best
-            moves_Gb[j] = move
+            gb = s_up - d
+            value = gb_up - e
+            if value > gb:
+                gb = value
+            value = ga_up - d
+            if value > gb:
+                gb = value
 
             # Ga(i, j): b[j] is aligned with a gap, we come from column j-1.
-            best = row_S[j - 1] - d
-            move = DIAG
-            value = row_Ga[j - 1] - e
-            if value > best:
-                best, move = value, LEFT
-            value = row_Gb[j - 1] - d
-            if value > best:
-                best, move = value, UP
-            row_Ga[j] = best
-            moves_Ga[j] = move
+            ga = s_left - d
+            value = ga_left - e
+            if value > ga:
+                ga = value
+            value = gb_left - d
+            if value > ga:
+                ga = value
 
             # S(i, j): a[i] is aligned with b[j], we come from (i-1, j-1).
             # Priority on ties: S, Gb, Ga.
-            best = prev_S[j - 1]
-            move = DIAG
-            value = prev_Gb[j - 1]
-            if value > best:
-                best, move = value, UP
-            value = prev_Ga[j - 1]
-            if value > best:
-                best, move = value, LEFT
-            best += sub[j - 1]
+            best = s_diag
+            if gb_diag > best:
+                best = gb_diag
+            if ga_diag > best:
+                best = ga_diag
+            best += s
             if best <= 0:
-                best, move = 0, STOP
-            row_S[j] = best
-            moves_S[j] = move
+                best = 0
+
+            row_S.append(best)
+            row_Ga.append(ga)
+            row_Gb.append(gb)
+            s_left, ga_left, gb_left = best, ga, gb
 
         S.append(row_S)
         Ga.append(row_Ga)
         Gb.append(row_Gb)
-        back_S.append(moves_S)
-        back_Ga.append(moves_Ga)
-        back_Gb.append(moves_Gb)
         prev_S, prev_Ga, prev_Gb = row_S, row_Ga, row_Gb
-    return S, Ga, Gb, back_S, back_Ga, back_Gb
+    return S, Ga, Gb
+
+
+def _best_of(first: Number, second: Number, third: Number, d1: Number, d2: Number, d3: Number) -> int:
+    """Which of first - d1, second - d2, third - d3 the fill kept (DIAG, UP, LEFT).
+
+    Ties go to the earliest candidate, exactly as in fill_affine.
+    """
+    best, move = first - d1, DIAG
+    if second - d2 > best:
+        best, move = second - d2, UP
+    if third - d3 > best:
+        move = LEFT
+    return move
 
 
 def traceback_affine(
@@ -317,16 +324,17 @@ def traceback_affine(
     b: str,
     matrix: SubstitutionMatrix,
     S: Grid,
-    back_S: list[bytearray],
-    back_Ga: list[bytearray],
-    back_Gb: list[bytearray],
+    Ga: Grid,
+    Gb: Grid,
+    d: Number,
+    e: Number,
     end: tuple[int, int],
 ) -> Alignment:
     """Rebuild the alignment that ends in cell ``end`` of S.
 
-    The traceback keeps track of the current matrix. The current matrix
-    decides which column is emitted, and its traceback entry decides which
-    matrix becomes current after the move.
+    The traceback keeps track of the current matrix (DIAG = S, UP = Gb,
+    LEFT = Ga). The current matrix decides which column is emitted; the
+    candidate its recurrence kept decides which matrix becomes current next.
     """
     i, j = end
     state = DIAG                       # a local alignment always ends in S
@@ -334,21 +342,25 @@ def traceback_affine(
     aligned_b: list[str] = []
     path = [(i, j)]
 
-    while not (state == DIAG and back_S[i][j] == STOP):
+    while not (state == DIAG and S[i][j] <= 0):
         if state == DIAG:
             aligned_a.append(a[i - 1])
             aligned_b.append(b[j - 1])
-            state = back_S[i][j]
             i, j = i - 1, j - 1
+            # S(i+1, j+1) = max{S, Gb, Ga}(i, j) + M: ties go to S, then Gb.
+            state = _best_of(S[i][j], Gb[i][j], Ga[i][j], 0, 0, 0)
         elif state == UP:              # matrix Gb: gap in b
             aligned_a.append(a[i - 1])
             aligned_b.append("-")
-            state = back_Gb[i][j]
+            # Gb candidates in fill order: open (S), extend (Gb), switch (Ga).
+            state = _best_of(S[i - 1][j], Gb[i - 1][j], Ga[i - 1][j], d, e, d)
             i -= 1
         else:                          # matrix Ga: gap in a
             aligned_a.append("-")
             aligned_b.append(b[j - 1])
-            state = back_Ga[i][j]
+            # Ga candidates in fill order: open (S), extend (Ga), switch (Gb).
+            move = _best_of(S[i][j - 1], Ga[i][j - 1], Gb[i][j - 1], d, e, d)
+            state = {DIAG: DIAG, UP: LEFT, LEFT: UP}[move]
             j -= 1
         path.append((i, j))
 
@@ -398,25 +410,22 @@ def smith_waterman(
     _check_penalties(gap_open, gap_extend)
 
     if gap_extend is None:
-        S, back = fill_linear(a, b, matrix, gap_open)
+        S = fill_linear(a, b, matrix, gap_open)
         best, cells = find_best_cells(S)
         # A local alignment ends with a pair of symbols. With d = 0 a gap is
         # free, so the maximum can also sit in cells reached by trailing gaps;
         # those are the same alignment plus useless gaps and are dropped.
-        cells = [(i, j) for i, j in cells if back[i][j] == DIAG]
-        alignments = [traceback_linear(a, b, matrix, S, back, cell) for cell in cells]
-        return SmithWatermanResult(
-            a, b, matrix, LINEAR, gap_open, gap_open, S, None, None, best, cells, alignments
-        )
+        alignments = [
+            traceback_linear(a, b, matrix, S, gap_open, (i, j))
+            for i, j in cells
+            if _linear_move(a, b, matrix, S, gap_open, i, j) == DIAG
+        ]
+        return SmithWatermanResult(a, b, matrix, LINEAR, gap_open, gap_open, S, None, None, best, alignments)
 
-    S, Ga, Gb, back_S, back_Ga, back_Gb = fill_affine(a, b, matrix, gap_open, gap_extend)
+    S, Ga, Gb = fill_affine(a, b, matrix, gap_open, gap_extend)
     best, cells = find_best_cells(S)
-    alignments = [
-        traceback_affine(a, b, matrix, S, back_S, back_Ga, back_Gb, cell) for cell in cells
-    ]
-    return SmithWatermanResult(
-        a, b, matrix, AFFINE, gap_open, gap_extend, S, Ga, Gb, best, cells, alignments
-    )
+    alignments = [traceback_affine(a, b, matrix, S, Ga, Gb, gap_open, gap_extend, cell) for cell in cells]
+    return SmithWatermanResult(a, b, matrix, AFFINE, gap_open, gap_extend, S, Ga, Gb, best, alignments)
 
 
 def score_alignment(
