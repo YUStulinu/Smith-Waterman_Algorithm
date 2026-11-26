@@ -11,7 +11,6 @@ import os
 import random
 import subprocess
 import sys
-import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -74,12 +73,12 @@ class Programs(unittest.TestCase):
         process = subprocess.Popen([sys.executable, "gui.py"], cwd=ROOT, env=ENV,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
-            time.sleep(3)
-            if process.poll() is not None:
-                _, error = process.communicate()
-                if "display" in error.lower():
-                    self.skipTest("no display available for tkinter")
-                self.fail(f"gui.py exited with code {process.returncode}:\n{error}")
+            _, error = process.communicate(timeout=3)      # returns as soon as gui.py exits
+            if "display" in error.lower():
+                self.skipTest("no display available for tkinter")
+            self.fail(f"gui.py exited with code {process.returncode}:\n{error}")
+        except subprocess.TimeoutExpired:
+            pass                                           # still running after 3 s: it stayed open
         finally:
             process.kill()
             process.communicate()

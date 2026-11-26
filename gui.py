@@ -29,6 +29,7 @@ from smith_waterman.sequences import clean_sequence, detect_type, prepare_sequen
 
 EXAMPLES_DIR = Path(__file__).resolve().parent / "examples"
 MAX_DRAWN_CELLS = 70 * 70
+MAX_LISTED_ALIGNMENTS = 100     # more are only counted: listing 360000 froze the window for seconds
 CELL = 38
 
 # (label, sequence a, sequence b, matrix, gap model, d, e)
@@ -347,7 +348,8 @@ class App(tk.Tk):
             return
 
         self.result = outcome["result"]
-        text = format_result(self.result, "a", "b", show_matrix=False, show_all=True)
+        show_all = len(self.result.alignments) <= MAX_LISTED_ALIGNMENTS
+        text = format_result(self.result, "a", "b", show_matrix=False, show_all=show_all)
         self.set_text(self.report, text)
 
         affine = self.result.gap_model == AFFINE

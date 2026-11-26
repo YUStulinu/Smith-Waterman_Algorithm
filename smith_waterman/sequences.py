@@ -15,7 +15,10 @@ def clean_sequence(text: str) -> str:
     This makes it possible to paste a sequence copied from GenBank / UniProt,
     where residues are grouped in blocks and prefixed with position numbers.
     """
-    return "".join(ch for ch in text.upper() if ch.isalpha() or ch == "*")
+    text = text.upper()
+    if text.isalpha():          # nothing to drop, as in most FASTA records: skip the per-symbol loop
+        return text
+    return "".join(ch for ch in text if ch.isalpha() or ch == "*")
 
 
 def detect_type(*sequences: str) -> str:

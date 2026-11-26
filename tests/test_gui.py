@@ -8,6 +8,7 @@ Run from the project folder with:  python -m unittest -v
 from __future__ import annotations
 
 import gc
+import random
 import sys
 import tempfile
 import time
@@ -314,17 +315,31 @@ class Files(GuiTestCase):
 
 class Responsiveness(GuiTestCase):
     def test_window_keeps_running_during_a_long_alignment(self):
-        self.type_sequences("ACGT" * 300, "TGCA" * 300)           # 1200 x 1200 cells
+        # Random DNA: a long DP fill with a single optimal alignment ("ACGT"... against
+        # "TGCA"... would tie in 360,000 cells and time the report instead of the fill).
+        rng = random.Random(1)
+        a = "".join(rng.choice("ACGT") for _ in range(3000))
+        b = "".join(rng.choice("ACGT") for _ in range(3000))
+        self.type_sequences(a, b)                                     # 3000 x 3000 cells
         self.app.align_button.invoke()
         self.assertTrue(self.app.busy)
         self.assertEqual(str(self.app.align_button.cget("state")), "disabled")
         self.assertEqual(str(self.app.example_box.cget("state")), "disabled")   # no pick while aligning
-        self.assertIn("Aligning 1200 x 1200", self.app.status_var.get())
+        self.assertIn("Aligning 3000 x 3000", self.app.status_var.get())
         loops = self.wait()
         self.assertGreater(loops, 5, "the event loop was blocked while aligning")
         self.assertEqual(str(self.app.example_box.cget("state")), "readonly")
-        expected = smith_waterman("ACGT" * 300, "TGCA" * 300, identity_matrix(1, -1), 2)
+        expected = smith_waterman(a, b, identity_matrix(1, -1), 2)
         self.assertEqual(self.app.result.best_score, expected.best_score)
+
+        # Many co-optimal alignments are counted, not listed, so the report stays small.
+        self.type_sequences("A" * 400, "A")
+        self.press_align()
+        report = self.app.report.get("1.0", "end")
+        self.assertEqual(len(self.app.result.alignments), 400)
+        self.assertIn("Optimal alignment 1 of 400", report)
+        self.assertNotIn("Optimal alignment 2 of 400", report)
+        self.assertIn("reached in 400 cells", report)
 
 
 if __name__ == "__main__":

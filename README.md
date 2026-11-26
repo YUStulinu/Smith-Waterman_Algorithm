@@ -22,7 +22,7 @@ It was written as the exam project (topic 4) for the Bioinformatics course of my
   - nucleotides: `IDENTITY` (your own match / mismatch scores), `TRANSITION_TRANSVERSION`, `NUC.4.4`
   - amino acids: `BLOSUM45`, `BLOSUM50`, `BLOSUM62`, `BLOSUM80`, `BLOSUM90`, `PAM30`, `PAM70`, `PAM250`
   - any other matrix from a file in NCBI format
-- **Every optimal alignment** is reported when the best score is reached in several cells.
+- **Every optimal alignment** is reported when the best score is reached in several cells (`--all`; the GUI lists the first 100 and counts the rest).
 - **Statistics**: identities, positives, gaps and the aligned region in each sequence.
 - **FASTA input**, automatic DNA/protein detection, RNA accepted (U is aligned as T).
 - **GUI**: the DP matrix with the traceback path highlighted; click a cell to see its recurrence with the actual values. The alignment runs in a background thread, so the window stays responsive on long sequences.

@@ -40,8 +40,8 @@ Time and memory are O(n * m).
 from __future__ import annotations
 
 import math
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from itertools import islice
 
 from .matrices import SubstitutionMatrix
 
@@ -155,6 +155,17 @@ def _substitution_rows(a: str, b: str, matrix: SubstitutionMatrix) -> list[list[
     return [cache[x] for x in a]
 
 
+def _from_column_1(row: list[Number]) -> Iterator[Number]:
+    """Iterate over row[1:] without copying the row.
+
+    A list iterator moved past column 0 is cheaper per item than
+    islice(row, 1, None), which adds a call of its own for every item.
+    """
+    items = iter(row)
+    next(items)
+    return items
+
+
 # The fill loops below walk the previous row with zip() instead of indexing
 # S[i][j], and compare values directly instead of calling max(): this is
 # several times faster in CPython. Two gap candidates with the same penalty d
@@ -180,11 +191,12 @@ def fill_linear(a: str, b: str, matrix: SubstitutionMatrix, d: Number) -> Grid:
 
     for sub in _substitution_rows(a, b, matrix):
         row = [0]
-        left = 0                                # S(i, j-1)
-        # diag = S(i-1, j-1), up = S(i-1, j), s = M(a[i], b[j])
-        for diag, up, s in zip(previous, islice(previous, 1, None), sub):
+        left = diag = 0                         # S(i, j-1) and S(i-1, j-1)
+        # up = S(i-1, j), s = M(a[i], b[j])
+        for up, s in zip(_from_column_1(previous), sub):
             # Same priority as the pseudocode in the course: diagonal, up, left.
             best = diag + s
+            diag = up                           # S(i-1, j) is the diagonal of column j+1
             if up >= left:                      # left - d <= up - d: left cannot win
                 up -= d
                 if up > best:
@@ -283,8 +295,17 @@ def fill_affine(a: str, b: str, matrix: SubstitutionMatrix, d: Number, e: Number
         diag = 0                                                # max{S, Gb, Ga}(i-1, j-1)
         # *_up = column j of row i-1
         for s_up, ga_up, gb_up, s in zip(
-            islice(prev_S, 1, None), islice(prev_Ga, 1, None), islice(prev_Gb, 1, None), sub
+            _from_column_1(prev_S), _from_column_1(prev_Ga), _from_column_1(prev_Gb), sub
         ):
+            # S(i, j): a[i] is aligned with b[j], we come from (i-1, j-1).
+            # max{S, Gb, Ga}(i-1, j-1) was taken one column earlier (ties: S, Gb, Ga).
+            best = diag + s
+            if best <= 0:
+                best = 0
+            diag = s_up                         # now max{S, Gb, Ga}(i-1, j), for column j+1
+            if gb_up > diag:
+                diag = gb_up
+
             # Gb(i, j): a[i] is aligned with a gap, we come from row i-1.
             # Priority on ties: open, extend, switch (same for Ga). Switching
             # costs d like opening, so it can only win when Ga > S.
@@ -296,6 +317,8 @@ def fill_affine(a: str, b: str, matrix: SubstitutionMatrix, d: Number, e: Number
                 value = ga_up - d
                 if value > gb:
                     gb = value
+                if ga_up > diag:                # Ga can top the diagonal max only when Ga > S too
+                    diag = ga_up
 
             # Ga(i, j): b[j] is aligned with a gap, we come from column j-1.
             ga = s_left - d
@@ -306,17 +329,6 @@ def fill_affine(a: str, b: str, matrix: SubstitutionMatrix, d: Number, e: Number
                 value = gb_left - d
                 if value > ga:
                     ga = value
-
-            # S(i, j): a[i] is aligned with b[j], we come from (i-1, j-1).
-            # max{S, Gb, Ga}(i-1, j-1) was taken one column earlier (ties: S, Gb, Ga).
-            best = diag + s
-            if best <= 0:
-                best = 0
-            diag = s_up
-            if gb_up > diag:
-                diag = gb_up
-            if ga_up > diag:
-                diag = ga_up
 
             row_S.append(best)
             row_Ga.append(ga)

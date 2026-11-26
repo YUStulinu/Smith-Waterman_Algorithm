@@ -342,6 +342,8 @@ class Matrices(unittest.TestCase):
 class Sequences(unittest.TestCase):
     def test_clean_sequence(self):
         self.assertEqual(clean_sequence("  1 acgt acgt\n 11 tt-a "), "ACGTACGTTTA")
+        self.assertEqual(clean_sequence("acgtn"), "ACGTN")          # letters only: returned as is
+        self.assertEqual(clean_sequence("MKV*"), "MKV*")            # a stop codon is kept
 
     def test_detect_type(self):
         self.assertEqual(detect_type("ACGTTGCA", "GGCAT"), NUCLEOTIDE)
