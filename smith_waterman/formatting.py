@@ -126,7 +126,8 @@ def format_result(
             lines.append(format_alignment(alignment, width, "a", "b"))
             lines.append("")
         if total > 1 and not show_all:
-            lines.append(f"Note: the maximum score is reached in {total} cells; use --all to list every alignment.")
+            lines.append(f"Note: the maximum score is reached in {total} cells; only the first alignment is shown "
+                         "(on the command line, use --all to list every one).")
 
     if show_matrix:
         path = result.alignment.path if result.alignment else None
