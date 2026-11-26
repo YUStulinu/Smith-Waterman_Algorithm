@@ -318,9 +318,11 @@ class Responsiveness(GuiTestCase):
         self.app.align_button.invoke()
         self.assertTrue(self.app.busy)
         self.assertEqual(str(self.app.align_button.cget("state")), "disabled")
+        self.assertEqual(str(self.app.example_box.cget("state")), "disabled")   # no pick while aligning
         self.assertIn("Aligning 1200 x 1200", self.app.status_var.get())
         loops = self.wait()
         self.assertGreater(loops, 5, "the event loop was blocked while aligning")
+        self.assertEqual(str(self.app.example_box.cget("state")), "readonly")
         expected = smith_waterman("ACGT" * 300, "TGCA" * 300, identity_matrix(1, -1), 2)
         self.assertEqual(self.app.result.best_score, expected.best_score)
 

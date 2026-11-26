@@ -328,6 +328,7 @@ class App(tk.Tk):
 
         self.busy = True
         self.align_button.configure(state="disabled")
+        self.example_box.configure(state="disabled")    # a pick now would only change the label
         self.status_var.set(f"Aligning {len(a)} x {len(b)} symbols...")
         worker = threading.Thread(target=work, daemon=True)
         worker.start()
@@ -339,6 +340,7 @@ class App(tk.Tk):
             return
         self.busy = False
         self.align_button.configure(state="normal")
+        self.example_box.configure(state="readonly")
         if "error" in outcome:
             self.status_var.set("")
             messagebox.showerror("Invalid input", str(outcome["error"]))

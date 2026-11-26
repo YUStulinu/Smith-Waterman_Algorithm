@@ -248,8 +248,11 @@ class ReferenceRecurrences(unittest.TestCase):
 
     def random_cases(self, seed, count):
         rng = random.Random(seed)
+        # all-int, all-float and mixed (int match, float mismatch: what the GUI and the
+        # CLI build from "1" and "-0.5") scores, so ties between an int and a float occur
         matrices = [identity_matrix(1, -1), identity_matrix(2, -1), identity_matrix(1.5, -0.25),
-                    identity_matrix(0.3, -0.1), transition_transversion_matrix(), get_matrix("NUC.4.4")]
+                    identity_matrix(0.3, -0.1), identity_matrix(1, -0.5), identity_matrix(3, -1.5),
+                    transition_transversion_matrix(), get_matrix("NUC.4.4")]
         protein = get_matrix("BLOSUM62")
         for _ in range(count):
             if rng.random() < 0.3:
@@ -272,12 +275,18 @@ class ReferenceRecurrences(unittest.TestCase):
                                            ("S", "Ga", "Gb")):
                 self.assert_same_grid(got, expected, (name, a, b, d, e))
 
-    def test_rounding_tie(self):
-        """Ga(i-1, j) = 2.8e-17 > S(i-1, j) = 0, yet both give -4 after subtracting d = 4."""
-        a, b = "TTTT", "TGTGTGGGGGGTTGGGTGGTTTGTTGGTGTGTGTTGGTGGGGGGGGTTGGTTGTTTGTGGGGTG"
-        matrix = identity_matrix(1.5, -0.25)
-        for got, expected in zip(fill_affine(a, b, matrix, 4, 0.1), reference_affine(a, b, matrix, 4, 0.1)):
-            self.assert_same_grid(got, expected, "rounding tie")
+    def test_known_ties(self):
+        """Two ties the random cases rarely hit; the first candidate in the course order must win."""
+        with self.subTest("linear: S(4,6) = 2 (int) and S(5,5) = 2.0 (float) tie for S(5,6), up wins"):
+            a, b, matrix = "AACAC", "ACCCCA", identity_matrix(1, -0.5)
+            S = fill_linear(a, b, matrix, 1)
+            self.assert_same_grid(S, reference_linear(a, b, matrix, 1), "int/float tie")
+            self.assertIs(type(S[5][6]), int)
+        with self.subTest("affine: Ga(3,62) = 2.8e-17 > S(3,62) = 0, yet both give -4 after d = 4"):
+            a, b = "TTTT", "TGTGTGGGGGGTTGGGTGGTTTGTTGGTGTGTGTTGGTGGGGGGGGTTGGTTGTTTGTGGGGTG"
+            matrix = identity_matrix(1.5, -0.25)
+            for got, expected in zip(fill_affine(a, b, matrix, 4, 0.1), reference_affine(a, b, matrix, 4, 0.1)):
+                self.assert_same_grid(got, expected, "rounding tie")
 
 
 class BestCells(unittest.TestCase):
